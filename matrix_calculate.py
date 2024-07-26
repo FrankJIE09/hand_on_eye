@@ -52,7 +52,7 @@ def load_robot_poses(num_poses):
     robot_rot_matrices = []
     robot_trans_vectors = []
     for i in range(num_poses):
-        data = np.load(f'./erzhi_T_data_circle2/T_base2ee0{i}.npz')
+        data = np.load(f'./erzhi_T_data_circle5/T_base2ee0{i}.npz')
         transform_matrix = data['arr_0']
         rot_matrix = transform_matrix[:3, :3]
         trans_vector = transform_matrix[:3, 3]
@@ -136,7 +136,7 @@ def main():
     num_poses = 48
 
     # 加载图像
-    images = glob.glob('./erzhi_img_circle2/*.jpg')
+    images = glob.glob('./erzhi_img_circle*/*.jpg')
 
     # 查找棋盘角点
     obj_points, img_points = find_corners(images, pattern_size)
