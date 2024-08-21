@@ -45,7 +45,7 @@ robot.connect()
 # Example usage:
 base_position = robot.get_geom(matrix=False)  # Base position of the robotic arm
 num_positions = 47  # Number of positions to generate
-translation_range = (10, 10, 10)  # Allowable translation changes in mm
+translation_range = (25, 25, 25)  # Allowable translation changes in mm
 rotation_range = (8, 8, 8)  # Allowable rotation changes in degrees
 
 positions = generate_random_positions(base_position, num_positions, translation_range, rotation_range)
