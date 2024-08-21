@@ -4,6 +4,7 @@ import glob
 from scipy.spatial.transform import Rotation as R
 import re
 import yaml
+from tqdm import tqdm
 
 def find_corners(images, pattern_size):
     """
@@ -13,17 +14,25 @@ def find_corners(images, pattern_size):
     world_points = create_world_points(pattern_size)
     obj_points = []
     img_points = []
+    used_indices = []
+    unused_images = []
 
-    for i, fname in enumerate(images):
+    for i, fname in tqdm(enumerate(images), desc="Finding corners", total=len(images)):
         img = cv2.imread(fname)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ret, corners = cv2.findCirclesGrid(gray, pattern_size, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
         if ret:
             obj_points.append(world_points)
             img_points.append(corners)
+            used_indices.append(i)  # 记录成功检测到角点的图像索引
             cv2.drawChessboardCorners(img, pattern_size, corners, ret)
+            # Save processed image
+            output_fname = f"./processed_images/{i:03d}.png"
+            cv2.imwrite(output_fname, img)
+        else:
+            unused_images.append(fname)  # 收集未使用的图片
 
-    return obj_points, img_points
+    return obj_points, img_points, used_indices, unused_images
 
 
 def create_world_points(pattern_size):
@@ -40,19 +49,21 @@ def create_world_points(pattern_size):
     return world_points * 0.02
 
 
-def load_robot_poses(file_path):
+def load_robot_poses(file_path, used_indices):
     """
     从文件加载并解析机器人位姿数据，提取旋转矩阵和平移向量。
+    只加载与成功检测到角点的图像对应的姿态。
     """
     data = np.load(file_path, allow_pickle=True)
 
     robot_rot_matrices = []
     robot_trans_vectors = []
 
-    for pose in data:
+    for i in tqdm(used_indices, desc="Loading robot poses"):
+        pose = data[i]
         if len(pose) == 6:
             # 前三个是平移向量
-            trans_vector = np.array(pose[:3])
+            trans_vector = np.array(pose[:3]) / 1000  # 假设平移单位为毫米，将其转换为米
             # 后三个是旋转向量 (假设是欧拉角)
             rot_vector = np.array(pose[3:])
 
@@ -77,15 +88,25 @@ def calibrate_camera(obj_points, img_points, img_size):
     return ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors
 
 
-def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors):
+def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors,
+                         method=cv2.CALIB_HAND_EYE_PARK):
     """
-    使用PARK方法进行手眼标定，得到相机到手眼的变换矩阵。
-    """
-    rm_park, tm_park = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
-                                            cam_trans_vectors, method=cv2.CALIB_HAND_EYE_PARK)
-    transform_matrix_park = create_transformation_matrix(rm_park, tm_park)
+    使用指定方法进行手眼标定，得到相机到手眼的变换矩阵，并计算RPY。
 
-    return transform_matrix_park
+    支持的标定方法包括：
+    - cv2.CALIB_HAND_EYE_TSAI
+    - cv2.CALIB_HAND_EYE_PARK
+    - cv2.CALIB_HAND_EYE_HORAUD
+    - cv2.CALIB_HAND_EYE_DANIILIDIS
+    """
+    rm, tm = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
+                                  cam_trans_vectors, method=method)
+    transform_matrix = create_transformation_matrix(rm, tm)
+
+    # 计算RPY (Roll, Pitch, Yaw)
+    rpy = R.from_matrix(rm).as_euler('xyz', degrees=True)
+
+    return transform_matrix, rpy
 
 
 def create_transformation_matrix(rotation_matrix, translation_vector):
@@ -98,7 +119,8 @@ def create_transformation_matrix(rotation_matrix, translation_vector):
     return transformation_matrix
 
 
-def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matrix, distortion_coeffs, transform_matrix_park):
+def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matrix, distortion_coeffs,
+                                     transform_matrix_park, rpy_park):
     """
     将标定结果保存为 YAML 和 TXT 文件。
     """
@@ -106,7 +128,8 @@ def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matr
     calibration_data = {
         'camera_matrix': intrinsic_matrix.tolist(),
         'distortion_coefficients': distortion_coeffs.tolist(),
-        'hand_eye_transformation_matrix': transform_matrix_park.tolist()
+        'hand_eye_transformation_matrix': transform_matrix_park.tolist(),
+        'hand_eye_rpy': rpy_park.tolist()
     }
 
     with open(yaml_filename, 'w') as f:
@@ -123,6 +146,9 @@ def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matr
 
         f.write("\nHand-Eye Transformation Matrix (PARK):\n")
         np.savetxt(f, transform_matrix_park, fmt='%f')
+
+        f.write("\nHand-Eye RPY (PARK):\n")
+        np.savetxt(f, rpy_park, fmt='%f')
 
     print(f"标定结果已保存到 {txt_filename}")
 
@@ -144,31 +170,37 @@ def sort_images(images):
 def main():
     # 设置参数
     pattern_size = (4, 11)
-    num_poses = 48
+    expected_num_poses = 48
 
     # 加载图像
     images = glob.glob('./captured_images/*.png')
     images = sort_images(images)  # 按照文件名中的数字排序
 
     # 查找棋盘角点
-    obj_points, img_points = find_corners(images, pattern_size)
+    obj_points, img_points, used_indices, unused_images = find_corners(images, pattern_size)
 
-    # 加载机器人位姿
-    robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy')
+    if unused_images:
+        print(f"未处理的图片数量: {len(unused_images)}")
+        print(f"未处理的图片: {unused_images}")
+
+    # 加载机器人位姿，只加载成功检测到角点的图像对应的姿态
+    robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy', used_indices)
 
     # 相机标定
     img_size = cv2.imread(images[0]).shape[::-1][1:3]
-    ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors = calibrate_camera(obj_points, img_points, img_size)
+    ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors = calibrate_camera(obj_points, img_points,
+                                                                                               img_size)
 
     # 转换旋转向量为旋转矩阵
     cam_rot_matrices = [cv2.Rodrigues(rot_vec)[0] for rot_vec in trans_vectors]
 
     # 手眼标定
-    transform_matrix_park = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors,
-                                                 cam_rot_matrices, trans_vectors)
+    transform_matrix_park, rpy_park = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors,
+                                                           cam_rot_matrices, trans_vectors)
 
     # 保存标定结果到 config.yaml 和 calibration_results.txt
-    save_calibration_to_yaml_and_txt('config.yaml', 'calibration_results.txt', intrinsic_matrix, distortion_coeffs, transform_matrix_park)
+    save_calibration_to_yaml_and_txt('config.yaml', 'calibration_results.txt', intrinsic_matrix, distortion_coeffs,
+                                     transform_matrix_park, rpy_park)
 
 
 if __name__ == "__main__":

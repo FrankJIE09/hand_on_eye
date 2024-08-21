@@ -1,52 +1,64 @@
 import numpy as np
-import random
+import cv2
+import pyrealsense2 as rs
 from GraspErzi.ROBOT.eage_robot_client import RobotClient
 
-
-def generate_random_positions(base_position, num_positions, translation_range, rotation_range):
-    """
-    Generate a list of random positions based on a base position.
-
-    Parameters:
-    - base_position: Tuple or list of the form (x, y, z, rx, ry, rz)
-    - num_positions: Number of random positions to generate
-    - translation_range: Max deviation allowed in translation (x, y, z)
-    - rotation_range: Max deviation allowed in rotation (rx, ry, rz)
-
-    Returns:
-    - Array of positions
-    """
-    positions = []
-    print("Base Position:", base_position)  # Debugging output
-
-    if len(base_position) != 6:
-        raise ValueError("Base position must contain exactly 6 elements (x, y, z, rx, ry, rz).")
-
-    for _ in range(num_positions):
-        new_position = [
-            base_position[i] + random.uniform(-translation_range[i], translation_range[i])
-            for i in range(3)
-        ] + [
-            base_position[i + 3] + random.uniform(-rotation_range[i], rotation_range[i])
-            for i in range(3)
-        ]
-        positions.append(new_position)
-    positions.append(base_position)
-    return np.array(positions)
-
-
 def save_positions(positions, filename="positions.csv"):
+    """
+    将记录的位置保存到 CSV 文件中。
+    """
     np.savetxt(filename, positions, delimiter=',', fmt='%.3f')
 
+# 初始化RealSense相机
+pipeline = rs.pipeline()
+config = rs.config()
+config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
 
+# 启动摄像头流
+pipeline.start(config)
+
+# 初始化机械臂
 robot = RobotClient("ws://192.168.10.1:1880")
 robot.connect()
 
-# Example usage:
-base_position = robot.get_geom(matrix=False)  # Base position of the robotic arm
-num_positions = 47  # Number of positions to generate
-translation_range = (10, 10, 10)  # Allowable translation changes in mm
-rotation_range = (5, 5, 5)  # Allowable rotation changes in degrees
+positions = []  # 用于存储记录的位置
 
-positions = generate_random_positions(base_position, num_positions, translation_range, rotation_range)
-save_positions(positions)
+print("按下 'r' 键记录当前位置，按下 'q' 键退出并保存位置。")
+
+while True:
+    # 获取RealSense帧
+    frames = pipeline.wait_for_frames()
+    color_frame = frames.get_color_frame()
+
+    if not color_frame:
+        continue
+
+    # 将图像转换为numpy数组
+    color_image = np.asanyarray(color_frame.get_data())
+
+    # 显示图像
+    cv2.imshow('RealSense', color_image)
+
+    # 等待用户按键
+    key = cv2.waitKey(1) & 0xFF
+
+    if key == ord('r'):
+        # 获取当前机械臂位置
+        current_position = robot.get_geom(matrix=False)
+        positions.append(current_position)
+        print(f"记录当前位置: {current_position}")
+        print(f"已保存位置数: {len(positions)}")
+
+    elif key == ord('q'):
+        print("退出并保存位置。")
+        break
+
+# 关闭RealSense摄像头流
+pipeline.stop()
+
+# 保存所有记录的位置
+if positions:
+    save_positions(np.array(positions))
+    print(f"位置已保存到 'positions.csv' 文件中。共保存了 {len(positions)} 个位置。")
+
+cv2.destroyAllWindows()  # 确保所有OpenCV窗口被关闭

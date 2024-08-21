@@ -1,19 +1,18 @@
+import os
 import time
-
 import numpy as np
 import cv2
 import pyrealsense2 as rs
+from tqdm import tqdm  # 导入tqdm
 from GraspErzi.ROBOT.eage_robot_client import RobotClient
-
 
 # Function to initialize Realsense Camera
 def initialize_realsense():
     pipeline = rs.pipeline()
     config = rs.config()
-    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     pipeline.start(config)
     return pipeline
-
 
 # Function to capture an image from the Realsense camera
 def capture_image(pipeline):
@@ -23,7 +22,6 @@ def capture_image(pipeline):
         return None
     image = np.asanyarray(color_frame.get_data())
     return image
-
 
 # Initialize robotic arm
 robot = RobotClient("ws://192.168.10.1:1880")
@@ -37,10 +35,11 @@ positions = np.loadtxt('positions.csv', delimiter=',')
 
 # Directory for saving images and pose data
 image_dir = './captured_images/'
+os.makedirs(image_dir, exist_ok=True)
 pose_data = []
 
-# Move the robot and capture images
-for i, position in enumerate(positions):
+# Move the robot and capture images with a progress bar
+for i, position in enumerate(tqdm(positions, desc="Capturing images and poses")):
     robot.move_line(position)
     time.sleep(0.5)
     image = capture_image(pipeline)
