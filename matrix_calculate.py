@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import glob
 from scipy.spatial.transform import Rotation as R
-
+import re
+import yaml
 
 def find_corners(images, pattern_size):
     """
@@ -18,16 +19,10 @@ def find_corners(images, pattern_size):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ret, corners = cv2.findCirclesGrid(gray, pattern_size, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
         if ret:
-            print(f"i: {i}")
             obj_points.append(world_points)
             img_points.append(corners)
             cv2.drawChessboardCorners(img, pattern_size, corners, ret)
-            cv2.namedWindow('findCorners', cv2.WINDOW_NORMAL)
-            cv2.resizeWindow('findCorners', 640, 480)
-            cv2.imshow('findCorners', img)
-            cv2.waitKey(200)
 
-    cv2.destroyAllWindows()
     return obj_points, img_points
 
 
@@ -45,19 +40,30 @@ def create_world_points(pattern_size):
     return world_points * 0.02
 
 
-def load_robot_poses(num_poses):
+def load_robot_poses(file_path):
     """
-    加载并解析机器人位姿数据文件，提取旋转矩阵和平移向量。
+    从文件加载并解析机器人位姿数据，提取旋转矩阵和平移向量。
     """
+    data = np.load(file_path, allow_pickle=True)
+
     robot_rot_matrices = []
     robot_trans_vectors = []
-    for i in range(num_poses):
-        data = np.load(f'./erzhi_T_data_circle5/T_base2ee0{i}.npz')
-        transform_matrix = data['arr_0']
-        rot_matrix = transform_matrix[:3, :3]
-        trans_vector = transform_matrix[:3, 3]
-        robot_rot_matrices.append(rot_matrix)
-        robot_trans_vectors.append(trans_vector)
+
+    for pose in data:
+        if len(pose) == 6:
+            # 前三个是平移向量
+            trans_vector = np.array(pose[:3])
+            # 后三个是旋转向量 (假设是欧拉角)
+            rot_vector = np.array(pose[3:])
+
+            # 将旋转向量转换为旋转矩阵
+            rotation_matrix = R.from_euler('xyz', rot_vector, degrees=True).as_matrix()
+
+            robot_rot_matrices.append(rotation_matrix)
+            robot_trans_vectors.append(trans_vector)
+        else:
+            raise ValueError("每个pose数据应包含6个元素（3个平移+3个旋转）")
+
     return robot_rot_matrices, robot_trans_vectors
 
 
@@ -68,22 +74,18 @@ def calibrate_camera(obj_points, img_points, img_size):
     ret, intrinsic_matrix, distortion_coeffs, rot_vectors, trans_vectors = cv2.calibrateCamera(obj_points, img_points,
                                                                                                img_size, None, None)
     optimal_matrix, roi = cv2.getOptimalNewCameraMatrix(intrinsic_matrix, distortion_coeffs, img_size, 0, img_size)
-    return ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, rot_vectors, trans_vectors
+    return ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors
 
 
 def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors):
     """
-    使用TSAI和PARK方法进行手眼标定，得到相机到手眼的变换矩阵。
+    使用PARK方法进行手眼标定，得到相机到手眼的变换矩阵。
     """
-    rm_tsa, tm_tsa = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors,
-                                          method=cv2.CALIB_HAND_EYE_TSAI)
-    transform_matrix_tsa = create_transformation_matrix(rm_tsa, tm_tsa)
-
     rm_park, tm_park = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
                                             cam_trans_vectors, method=cv2.CALIB_HAND_EYE_PARK)
     transform_matrix_park = create_transformation_matrix(rm_park, tm_park)
 
-    return transform_matrix_tsa, transform_matrix_park
+    return transform_matrix_park
 
 
 def create_transformation_matrix(rotation_matrix, translation_vector):
@@ -96,38 +98,47 @@ def create_transformation_matrix(rotation_matrix, translation_vector):
     return transformation_matrix
 
 
-def rotation_matrix_to_rpy(rotation_matrix):
+def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matrix, distortion_coeffs, transform_matrix_park):
     """
-    转换旋转矩阵到欧拉角 (RPY)。
+    将标定结果保存为 YAML 和 TXT 文件。
     """
-    r = R.from_matrix(rotation_matrix)
-    return r.as_euler('xyz', degrees=True)
+    # YAML 文件保存
+    calibration_data = {
+        'camera_matrix': intrinsic_matrix.tolist(),
+        'distortion_coefficients': distortion_coeffs.tolist(),
+        'hand_eye_transformation_matrix': transform_matrix_park.tolist()
+    }
+
+    with open(yaml_filename, 'w') as f:
+        yaml.dump(calibration_data, f, default_flow_style=None)
+    print(f"标定结果已保存到 {yaml_filename}")
+
+    # TXT 文件保存
+    with open(txt_filename, 'w') as f:
+        f.write("Camera Matrix (Intrinsic):\n")
+        np.savetxt(f, intrinsic_matrix, fmt='%f')
+
+        f.write("\nDistortion Coefficients:\n")
+        np.savetxt(f, distortion_coeffs, fmt='%f')
+
+        f.write("\nHand-Eye Transformation Matrix (PARK):\n")
+        np.savetxt(f, transform_matrix_park, fmt='%f')
+
+    print(f"标定结果已保存到 {txt_filename}")
 
 
-def save_calibration_results(filename, ret, intrinsic_matrix, distortion_coeffs, rot_vectors, trans_vectors,
-                             optimal_matrix, transform_matrix_tsa, transform_matrix_park, rpy_tsa, rpy_park):
+def sort_images(images):
     """
-    将标定结果保存到文件。
+    按照图像文件名中的数字对图像路径进行排序。
     """
-    with open(filename, 'w') as f:
-        f.write("相机标定结果:\n")
-        f.write(f"ret: {ret}\n")
-        f.write(f"内参数矩阵 (intrinsic_matrix):\n{intrinsic_matrix}\n")
-        f.write(f"畸变系数 (distortion_coeffs):\n{distortion_coeffs}\n")
 
-        f.write(f"优化后的相机矩阵 (optimal_matrix):\n{optimal_matrix}\n")
+    def extract_number(filename):
+        # 从文件名中提取数字
+        match = re.search(r'(\d+)', filename)
+        return int(match.group(0)) if match else 0
 
-        f.write("\n手眼标定结果 (TSAI 方法):\n")
-        f.write(f"transform_matrix_tsa:\n{transform_matrix_tsa}\n")
-        f.write(f"RPY_TSAI (度):\n{rpy_tsa}\n")
-
-        f.write("\n手眼标定结果 (PARK 方法):\n")
-        f.write(f"transform_matrix_park:\n{transform_matrix_park}\n")
-        f.write(f"RPY_PARK (度):\n{rpy_park}\n")
-
-        f.write(f"旋转向量 (rot_vectors):\n{rot_vectors}\n")
-        f.write(f"平移向量 (trans_vectors):\n{trans_vectors}\n")
-    print(f"手眼标定结果已保存到 {filename}")
+    # 使用提取的数字对图像路径进行排序
+    return sorted(images, key=extract_number)
 
 
 def main():
@@ -136,35 +147,28 @@ def main():
     num_poses = 48
 
     # 加载图像
-    images = glob.glob('./erzhi_img_circle*/*.jpg')
+    images = glob.glob('./captured_images/*.png')
+    images = sort_images(images)  # 按照文件名中的数字排序
 
     # 查找棋盘角点
     obj_points, img_points = find_corners(images, pattern_size)
 
     # 加载机器人位姿
-    robot_rot_matrices, robot_trans_vectors = load_robot_poses(num_poses)
+    robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy')
 
     # 相机标定
     img_size = cv2.imread(images[0]).shape[::-1][1:3]
-    ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, rot_vectors, trans_vectors = calibrate_camera(obj_points,
-                                                                                                            img_points,
-                                                                                                            img_size)
+    ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors = calibrate_camera(obj_points, img_points, img_size)
 
     # 转换旋转向量为旋转矩阵
-    cam_rot_matrices = [cv2.Rodrigues(rot_vec)[0] for rot_vec in rot_vectors]
+    cam_rot_matrices = [cv2.Rodrigues(rot_vec)[0] for rot_vec in trans_vectors]
 
     # 手眼标定
-    transform_matrix_tsa, transform_matrix_park = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors,
-                                                                       cam_rot_matrices, trans_vectors)
+    transform_matrix_park = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors,
+                                                 cam_rot_matrices, trans_vectors)
 
-    # 转换旋转矩阵到欧拉角 (RPY)
-    rpy_tsa = rotation_matrix_to_rpy(transform_matrix_tsa[:3, :3])
-    rpy_park = rotation_matrix_to_rpy(transform_matrix_park[:3, :3])
-
-    # 保存标定结果
-    save_calibration_results('hand_eye_calibration_results.txt', ret, intrinsic_matrix, distortion_coeffs, rot_vectors,
-                             trans_vectors, optimal_matrix, transform_matrix_tsa, transform_matrix_park, rpy_tsa,
-                             rpy_park)
+    # 保存标定结果到 config.yaml 和 calibration_results.txt
+    save_calibration_to_yaml_and_txt('config.yaml', 'calibration_results.txt', intrinsic_matrix, distortion_coeffs, transform_matrix_park)
 
 
 if __name__ == "__main__":
