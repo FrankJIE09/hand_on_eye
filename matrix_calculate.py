@@ -63,7 +63,7 @@ def load_robot_poses(file_path, used_indices):
         pose = data[i]
         if len(pose) == 6:
             # 前三个是平移向量
-            trans_vector = np.array(pose[:3]) / 1000  # 假设平移单位为毫米，将其转换为米
+            trans_vector = np.array(pose[:3])/1000 # 假设平移单位为毫米，将其转换为米
             # 后三个是旋转向量 (假设是欧拉角)
             rot_vector = np.array(pose[3:])
 

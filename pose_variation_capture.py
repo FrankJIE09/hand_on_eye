@@ -6,6 +6,7 @@ import pyrealsense2 as rs
 from tqdm import tqdm  # 导入tqdm
 from GraspErzi.ROBOT.eage_robot_client import RobotClient
 
+
 # Function to initialize Realsense Camera
 def initialize_realsense():
     pipeline = rs.pipeline()
@@ -13,6 +14,7 @@ def initialize_realsense():
     config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     pipeline.start(config)
     return pipeline
+
 
 # Function to capture an image from the Realsense camera
 def capture_image(pipeline):
@@ -22,6 +24,7 @@ def capture_image(pipeline):
         return None
     image = np.asanyarray(color_frame.get_data())
     return image
+
 
 # Initialize robotic arm
 robot = RobotClient("ws://192.168.10.1:1880")
