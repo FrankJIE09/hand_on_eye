@@ -1,4 +1,5 @@
 # Hand on eye calibration
+![标定视频](assets/calibration.gif)
 
 **Wrote by Zhang Yiheng & Jie YU**
 
