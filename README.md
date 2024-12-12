@@ -1,11 +1,8 @@
-# Hand on eye calibration
+# Hand on eye calibration 
+# 手眼标定
 ![标定视频](assets/calibration.gif)
 
 **Wrote by Zhang Yiheng & Jie YU**
-
-当然可以，以下是为您的项目设计的中文版 `README.md` 文件模板。这个模板包括了项目的目的、环境设置、运行脚本以及您上传的各个脚本和数据文件的描述。您可以根据项目的具体需求对内容进行调整。
-
-# 项目标题
 
 ## 概览
 本项目旨在通过多个 Python 脚本实现与机器人臂集成的摄像头系统的标定工作，处理图像与姿态数据采集、标定以及矩阵计算。
