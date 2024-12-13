@@ -2775,6 +2775,24 @@ class CPSClient(object):
     *	@param return: 错误码
     '''
 
+    def move_robot(self, target_pose, boxID=0, rbtID=0, speed=50, acceleration=500, radius=0):
+        ucs = "Base"  # 坐标系
+        ret = self.HRIF_MoveL(boxID, rbtID, points=target_pose, RawACSpoints=target_pose, tcp="TCP", ucs=ucs,
+                              speed=speed, Acc=acceleration, radius=radius, isSeek=0, bit=0, state=1, cmdID=1)
+        if ret == 0:
+            # 等待运动完成
+            while True:
+                motion_done_result = []
+                motion_done = self.HRIF_IsMotionDone(boxID, rbtID, motion_done_result)
+                if motion_done == 0 and motion_done_result and motion_done_result[0] == 1:
+                    break  # 运动完成
+                elif motion_done < 0:
+                    print(f"运动过程中出错，错误码: {motion_done}")
+                    break
+                time.sleep(0.5)  # 等待一段时间再次检查
+        else:
+            print(f"机器人运动失败，错误码: {ret}")
+
     def HRIF_MoveL(self, boxID, rbtID, points, RawACSpoints, tcp, ucs, speed, Acc, radius, isSeek, bit, state, cmdID):
         result = []
         command = 'WayPoint,'
@@ -3725,3 +3743,31 @@ def WriteDint(value, reverse=False):
     else:
         v = [m, n]
     return v
+
+
+if __name__ == '__main__':
+    client = CPSClient()
+    boxID = 0  # 假设您使用的是第一个电箱
+    rbtID = 0  # 假设您使用的是第一个机器人
+
+    # 连接到电箱和控制器
+    client.HRIF_Connect(boxID, '192.168.11.7', 10003)
+    client.HRIF_Connect2Controller(boxID)
+
+    # 上电
+    electrify_result = client.HRIF_Electrify(boxID)
+    if electrify_result != 0:
+        print("上电失败，错误代码:", electrify_result)
+
+    # 使能机器人
+    enable_result = client.HRIF_GrpEnable(boxID, rbtID)
+    if enable_result != 0:
+        print("使能失败，错误代码:", enable_result)
+
+    current_pose = []
+    client.HRIF_ReadActPos(boxID, rbtID, current_pose)
+    current_pose = [float(num) for num in current_pose]
+    target_pose = current_pose[6:12]
+
+    target_pose[3:6] = [180-43.27147704196139, 16.100274074694543, 15.116146464420966]
+    client.move_robot(target_pose=target_pose)

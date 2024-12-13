@@ -1,8 +1,11 @@
+
 # Hand on eye calibration 
+
 # 手眼标定
+**Wrote by Zhang Yiheng & Jie YU**
+
 ![标定视频](assets/calibration.gif)
 
-**Wrote by Zhang Yiheng & Jie YU**
 
 ## 概览
 本项目旨在通过多个 Python 脚本实现与机器人臂集成的摄像头系统的标定工作，处理图像与姿态数据采集、标定以及矩阵计算。
