@@ -3754,15 +3754,6 @@ if __name__ == '__main__':
     client.HRIF_Connect(boxID, '192.168.11.7', 10003)
     client.HRIF_Connect2Controller(boxID)
 
-    # 上电
-    electrify_result = client.HRIF_Electrify(boxID)
-    if electrify_result != 0:
-        print("上电失败，错误代码:", electrify_result)
-
-    # 使能机器人
-    enable_result = client.HRIF_GrpEnable(boxID, rbtID)
-    if enable_result != 0:
-        print("使能失败，错误代码:", enable_result)
 
     current_pose = []
     client.HRIF_ReadActPos(boxID, rbtID, current_pose)
@@ -3770,4 +3761,5 @@ if __name__ == '__main__':
     target_pose = current_pose[6:12]
 
     target_pose[3:6] = [180-43.27147704196139, 16.100274074694543, 15.116146464420966]
+    target_pose[2] = target_pose[2] +50
     client.move_robot(target_pose=target_pose)

@@ -51,7 +51,7 @@ pipeline = initialize_realsense()
 positions = np.loadtxt('positions.csv', delimiter=',')
 
 # Directory for saving images and pose data
-image_dir = './captured_images/'
+image_dir = 'captured_images/'
 if os.path.exists(image_dir):
     shutil.rmtree(image_dir)  # Remove the directory if it exists
 os.makedirs(image_dir, exist_ok=True)  # Create the directory

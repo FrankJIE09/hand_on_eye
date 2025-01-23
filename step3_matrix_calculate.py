@@ -122,7 +122,7 @@ def main():
     if unused_images:
         print(f"未处理的图片数量: {len(unused_images)}")
         print(f"未处理的图片: {unused_images}")
-    robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy', used_indices)
+    robot_rot_matrices, robot_trans_vectors = load_robot_poses('pose_data.npy', used_indices)
     img_size = cv2.imread(images[0]).shape[::-1][1:3]
     ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors, cam_rot_matrices = calibrate_camera(obj_points, img_points, img_size)
     transform_matrix, inv_transform_matrix, rpy, inv_rpy = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, trans_vectors)
