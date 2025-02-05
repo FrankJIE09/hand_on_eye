@@ -3,3 +3,4 @@
 #*.npz
 .idea
 .idea/*
+/dist/
