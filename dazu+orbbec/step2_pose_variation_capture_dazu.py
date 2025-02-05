@@ -4,14 +4,32 @@ import time
 import numpy as np
 import cv2
 from tqdm import tqdm
-from ROBOT.elibot.CPS import CPSClient
+from ROBOT.dazu.CPS import CPSClient
 from pyorbbecsdk import Config, OBError, OBSensorType, OBFormat, Pipeline, FrameSet, VideoStreamProfile
 from utils import frame_to_bgr_image  # 这个utils库可能包含一些辅助函数，这里用于将帧转换为图像
 
 
-def move_robot(cps_client, target_pose):
-    speed = 5  # 运动速度
-    cps_client.move_robot(target_pose=target_pose, speed=speed)
+def move_robot(cps_client, boxID, rbtID, target_pose):
+    speed = 50  # 运动速度
+    acceleration = 500  # 加速度
+    ucs = "Base"  # 坐标系
+    radius = 0  # 直线运动半径
+    ret = cps_client.HRIF_MoveL(boxID, rbtID, points=target_pose, RawACSpoints=target_pose, tcp="TCP", ucs=ucs,
+                                speed=speed, Acc=acceleration, radius=radius, isSeek=0, bit=0, state=1, cmdID=1)
+    if ret == 0:
+        # 等待运动完成
+        while True:
+            motion_done_result = []
+            motion_done = cps_client.HRIF_IsMotionDone(boxID, rbtID, motion_done_result)
+            if motion_done == 0 and motion_done_result and motion_done_result[0] == 1:
+                break  # 运动完成
+            elif motion_done < 0:
+                print(f"运动过程中出错，错误码: {motion_done}")
+                break
+            time.sleep(0.5)  # 等待一段时间再次检查
+    else:
+        print(f"机器人运动失败，错误码: {ret}")
+
 
 
 def capture_image(pipeline):
@@ -46,13 +64,11 @@ except Exception as e:
 # 启动管道，开始处理数据流
 pipeline.start(config)
 
-# 机器人连接参数
-IP = '192.168.11.8'
-cps_client = CPSClient(IP)
-ret = cps_client.connect()
-if ret != True:
-    print(f"连接机器人失败，错误码: {ret}")
-    exit()
+cps = CPSClient()
+boxID = 0
+rbtID = 0
+cps.HRIF_Connect(boxID, '192.168.11.7', 10003)
+
 positions = np.loadtxt('./positions.csv', delimiter=',')
 
 # Directory for saving images and pose data
@@ -64,7 +80,7 @@ os.makedirs(image_dir, exist_ok=True)  # Create the directory
 pose_data = []
 
 for i, position in enumerate(tqdm(positions, desc="Capturing images and poses")):
-    cps_client.move_robot(target_pose=position)
+    move_robot(cps, boxID, rbtID, position)
 
     # 等待新的帧集合，超时时间为100毫秒
     frames = pipeline.wait_for_frames(100)
@@ -79,11 +95,12 @@ for i, position in enumerate(tqdm(positions, desc="Capturing images and poses"))
     image = color_image
     if image is not None:
         cv2.imwrite(f'{image_dir}image_{i}.png', image)
-        current_pose = cps_client.getTCPPose()
+        current_pose = []
+        cps.HRIF_ReadActPos(boxID, rbtID, current_pose)
         current_pose = [float(num) for num in current_pose]
-        pose_data.append(current_pose)
+        pose_data.append(current_pose[6:12])
         np.save(f'{image_dir}pose_{i}.npy', np.array(current_pose))
 
 pipeline.stop()
-cps_client.disconnect()
+cps.HRIF_DisConnect(boxID)
 np.save('./pose_data.npy', np.array(pose_data))
