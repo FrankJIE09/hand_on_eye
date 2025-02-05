@@ -3,7 +3,7 @@ import cv2
 import time
 import random
 import yaml
-from ROBOT.elibot.CPS import CPSClient
+from ROBOT.dazu.CPS import CPSClient
 
 from pyorbbecsdk import Config, OBError, OBSensorType, OBFormat, Pipeline, FrameSet, VideoStreamProfile
 from utils import frame_to_bgr_image  # 这个utils库可能包含一些辅助函数，这里用于将帧转换为图像
@@ -45,10 +45,11 @@ except Exception as e:
 pipeline.start(config)
 
 # 机器人连接参数
-IP = '192.168.11.8'
-cps_client = CPSClient(IP)
-ret = cps_client.connect()
-if ret != True:
+IP = '192.168.11.7'
+PORT = 10003
+cps_client = CPSClient()
+ret = cps_client.HRIF_Connect(0, IP, PORT)
+if ret != 0:
     print(f"连接机器人失败，错误码: {ret}")
     exit()
 
@@ -79,10 +80,11 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
     if key == ord('r'):
-        result = cps_client.getTCPPose()
+        result = []
+        error_code = cps_client.HRIF_ReadActPos(0, 0, result)
         result = [float(num) for num in result]
-        positions.append(result)
-        print(f"记录当前位置: {result}")
+        positions.append(result[6:12])
+        print(f"记录当前位置: {result[6:12]}")
         print(f"已保存位置数: {len(positions)}")
     elif key == ord('q'):
         print("退出并保存位置。")
@@ -94,4 +96,4 @@ if positions:
     print(f"位置已保存到 'positions.csv' 文件中。共保存了 {len(positions)} 个位置。")
 
 cv2.destroyAllWindows()  # 确保所有OpenCV窗口被关闭
-cps_client.disconnect()
+cps_client.HRIF_DisConnect(0)

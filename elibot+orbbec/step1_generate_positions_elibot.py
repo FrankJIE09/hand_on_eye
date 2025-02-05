@@ -21,6 +21,8 @@ def save_positions(positions, filename="positions.csv"):
 
 
 
+
+
 config = Config()  # 创建配置对象
 pipeline = Pipeline()  # 创建流管道，用于处理来自相机的数据流
 
