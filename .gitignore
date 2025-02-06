@@ -1,6 +1,6 @@
-#*.jpg
-#*.png
-#*.npz
+*.jpg
+*.png
+*.npz
 .idea
 .idea/*
 /dist/
