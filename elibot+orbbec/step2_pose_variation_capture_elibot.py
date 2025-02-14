@@ -47,7 +47,7 @@ except Exception as e:
 pipeline.start(config)
 
 # 机器人连接参数
-IP = '192.168.11.8'
+IP = '192.168.1.201'
 cps_client = CPSClient(IP)
 ret = cps_client.connect()
 if ret != True:
