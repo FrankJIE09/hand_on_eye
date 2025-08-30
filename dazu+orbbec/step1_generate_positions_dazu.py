@@ -11,8 +11,6 @@ from utils import frame_to_bgr_image  # 这个utils库可能包含一些辅助�
 ESC_KEY = 27
 
 
-
-
 def save_positions(positions, filename="positions.csv"):
     """
     将记录的位置保存到 CSV 文件中。
@@ -45,7 +43,7 @@ except Exception as e:
 pipeline.start(config)
 
 # 机器人连接参数
-IP = '192.168.11.7'
+IP = '192.168.188.102'
 PORT = 10003
 cps_client = CPSClient()
 ret = cps_client.HRIF_Connect(0, IP, PORT)

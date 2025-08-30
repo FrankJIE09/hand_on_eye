@@ -49,7 +49,7 @@ try:
     profile_list = pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR)
     try:
         # 尝试获取指定分辨率和帧率的RGB视频流配置
-        color_profile = profile_list.get_video_stream_profile(640, 480, OBFormat.RGB, 30)
+        color_profile = profile_list.get_video_stream_profile(1280, 720, OBFormat.RGB, 30)
     except OBError as e:
         # 如果指定配置失败，则获取默认的视频流配置
         print(e)
@@ -67,7 +67,7 @@ pipeline.start(config)
 cps = CPSClient()
 boxID = 0
 rbtID = 0
-cps.HRIF_Connect(boxID, '192.168.11.7', 10003)
+cps.HRIF_Connect(boxID, '192.168.188.102', 10003)
 
 positions = np.loadtxt('./positions.csv', delimiter=',')
 
