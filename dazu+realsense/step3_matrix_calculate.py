@@ -37,7 +37,7 @@ def create_world_points(pattern_size):
         for j in range(width):
             world_points[num, :2] = [j + 0.5 * (i % 2), i * 0.5]
             num += 1
-    return world_points * 0.02
+    return world_points * 0.01
 
 def load_robot_poses(file_path, used_indices):
     data = np.load(file_path, allow_pickle=True)
