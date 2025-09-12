@@ -27,7 +27,7 @@ try:
     profile_list = pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR)
     try:
         # 尝试获取指定分辨率和帧率的RGB视频流配置
-        color_profile = profile_list.get_video_stream_profile(640, 480, OBFormat.RGB, 30)
+        color_profile = profile_list.get_video_stream_profile(1280, 720, OBFormat.RGB, 30)
     except OBError as e:
         # 如果指定配置失败，则获取默认的视频流配置
         print(e)
@@ -43,7 +43,7 @@ except Exception as e:
 pipeline.start(config)
 
 # 机器人连接参数
-IP = '192.168.188.102'
+IP = '172.16.2.103'
 PORT = 10003
 cps_client = CPSClient()
 ret = cps_client.HRIF_Connect(0, IP, PORT)

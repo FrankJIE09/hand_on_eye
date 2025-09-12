@@ -1,0 +1,38 @@
+Dual Robot Base Calibration Results
+===================================
+
+Camera Matrix (Intrinsic):
+690.415986 0.000000 644.938753
+0.000000 690.080709 355.080355
+0.000000 0.000000 1.000000
+
+Distortion Coefficients:
+0.015234 -0.072808 0.000352 0.000347 0.052646
+
+Robot2 Base to Robot1 Base Transformation Matrix:
+0.999966 -0.008134 0.001666 -0.000367
+-0.008133 -0.999967 -0.000436 0.002387
+0.001670 0.000422 -0.999999 -0.101476
+0.000000 0.000000 0.000000 1.000000
+
+Robot2 Base to Robot1 Base RPY (degrees):
+179.975794
+-0.095655
+-0.465981
+
+Robot1 Base to Robot2 Base Transformation Matrix:
+0.999966 -0.008133 0.001670 0.000555
+-0.008134 -0.999967 0.000422 0.002427
+0.001666 -0.000436 -0.999999 -0.101474
+0.000000 0.000000 0.000000 1.000000
+
+Robot1 Base to Robot2 Base RPY (degrees):
+-179.975017
+-0.095455
+-0.466022
+
+Calibration Accuracy:
+Camera Reprojection Error: 0.008934 pixels
+Dual Robot Calibration Error: 1294.252035
+Dual Robot Rotation Error: 647.126017 degrees
+Dual Robot Translation Error: 647.126017 mm

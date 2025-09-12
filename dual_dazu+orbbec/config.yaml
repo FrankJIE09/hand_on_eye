@@ -1,0 +1,47 @@
+# 双机械臂标定配置文件
+# 机械臂1: 安装相机
+# 机械臂2: 安装标定板
+
+# 机械臂1配置 (安装相机)
+robot1:
+  name: "camera_robot"
+  ip: "172.16.2.103"
+  port: 10003
+  box_id: 0
+  robot_id: 0
+
+# 机械臂2配置 (安装标定板)
+robot2:
+  name: "calibration_board_robot"
+  ip: "172.16.2.101"  # 第二个机械臂的IP
+  port: 10003
+  box_id: 1
+  robot_id: 0
+
+# 相机配置
+camera:
+  width: 1280
+  height: 720
+  fps: 30
+  format: "RGB"
+
+# 标定板配置
+calibration_board:
+  pattern_size: [4, 11]  # 标定板模式大小 (width, height)
+  square_size: 0.02      # 正方形边长 (米)
+
+# 运动参数
+motion:
+  speed: 50              # 运动速度
+  acceleration: 500      # 加速度
+  wait_time: 2           # 到达位置后等待时间(秒)
+
+# 文件路径
+paths:
+  positions_file: "positions.csv"
+  pose_data_file: "pose_data.npy"
+  images_dir: "captured_images/"
+  processed_images_dir: "processed_images/"
+  calibration_results: "calibration_results.txt"
+  config_output: "config.yaml"
+
