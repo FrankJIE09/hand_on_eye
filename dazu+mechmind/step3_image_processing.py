@@ -29,6 +29,9 @@ def find_corners(images, pattern_size):
         ret, corners = cv2.findCirclesGrid(gray, pattern_size, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
         if ret:
             obj_points.append(world_points)
+            # 确保corners是(N, 2)格式
+            if len(corners.shape) == 3:
+                corners = corners.reshape(-1, 2)
             img_points.append(corners)
             used_indices.append(i)
             # 绘制角点
@@ -110,6 +113,10 @@ def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
         if obj_points and img_points:
             all_corners_data = []
             for img_idx, (obj_pts, img_pts) in enumerate(zip(obj_points, img_points)):
+                # img_pts应该已经是(N, 2)格式，但为了安全起见再次检查
+                if len(img_pts.shape) == 3:
+                    img_pts = img_pts.reshape(-1, 2)
+                
                 for corner_idx in range(len(obj_pts)):
                     all_corners_data.append({
                         '图像索引': used_indices[img_idx],

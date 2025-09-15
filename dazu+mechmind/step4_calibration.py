@@ -1,26 +1,31 @@
 import cv2
 import numpy as np
 import yaml
+import os
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
-def load_robot_poses(file_path, used_indices):
+def load_robot_poses(used_indices):
     """加载机器人位姿数据"""
-    data = np.load(file_path, allow_pickle=True)
     robot_rot_matrices = []
     robot_trans_vectors = []
-    valid_indices = [i for i in used_indices if i < len(data)]
     
-    for i in tqdm(valid_indices, desc="Loading robot poses"):
-        pose = data[i]
-        if len(pose) == 6:
-            trans_vector = np.array(pose[:3])/1000  # 转换为米
-            rot_vector = np.array(pose[3:])
-            rotation_matrix = R.from_euler('xyz', rot_vector, degrees=True).as_matrix()
-            robot_rot_matrices.append(rotation_matrix)
-            robot_trans_vectors.append(trans_vector)
+    for i in tqdm(used_indices, desc="Loading robot poses"):
+        pose_file = f'./captured_images/pose_{i}.npy'
+        if os.path.exists(pose_file):
+            pose_data = np.load(pose_file)
+            # 取前6个元素（位置和姿态）
+            pose = pose_data[:6]
+            if len(pose) == 6:
+                trans_vector = np.array(pose[:3])/1000  # 转换为米
+                rot_vector = np.array(pose[3:])
+                rotation_matrix = R.from_euler('xyz', rot_vector, degrees=True).as_matrix()
+                robot_rot_matrices.append(rotation_matrix)
+                robot_trans_vectors.append(trans_vector)
+            else:
+                print(f"警告：pose_{i}.npy 数据格式不正确，跳过")
         else:
-            raise ValueError("每个pose数据应包含6个元素（3个平移+3个旋转）")
+            print(f"警告：找不到 pose_{i}.npy 文件，跳过")
     
     return robot_rot_matrices, robot_trans_vectors
 
@@ -42,7 +47,10 @@ def calibrate_camera(obj_points, img_points, img_size):
         imgpoints2, _ = cv2.projectPoints(
             obj_points[i], rot_vectors[i], trans_vectors[i], 
             intrinsic_matrix, distortion_coeffs)
-        error = cv2.norm(img_points[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+        # 确保数据类型和形状一致
+        img_points_i = np.array(img_points[i], dtype=np.float32)
+        imgpoints2 = np.array(imgpoints2, dtype=np.float32).reshape(-1, 2)
+        error = cv2.norm(img_points_i, imgpoints2, cv2.NORM_L2)/len(imgpoints2)
         mean_error += error
     
     reprojection_error = mean_error / len(obj_points)
@@ -216,10 +224,12 @@ def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matr
 def load_processing_results():
     """加载图像处理结果"""
     try:
-        obj_points = np.load('./obj_points.npy', allow_pickle=True)
-        img_points = np.load('./img_points.npy', allow_pickle=True)
-        used_indices = np.load('./used_indices.npy', allow_pickle=True)
-        img_size = np.load('./img_size.npy', allow_pickle=True)
+        # 从processing_data文件夹加载数据
+        data_dir = './processing_data'
+        obj_points = np.load(os.path.join(data_dir, 'obj_points.npy'), allow_pickle=True)
+        img_points = np.load(os.path.join(data_dir, 'img_points.npy'), allow_pickle=True)
+        used_indices = np.load(os.path.join(data_dir, 'used_indices.npy'), allow_pickle=True)
+        img_size = np.load(os.path.join(data_dir, 'img_size.npy'), allow_pickle=True)
         
         print(f"成功加载图像处理结果:")
         print(f"  - 角点数量: {len(obj_points)}")
@@ -244,7 +254,7 @@ def main():
     
     try:
         # 加载机器人位姿数据
-        robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy', used_indices)
+        robot_rot_matrices, robot_trans_vectors = load_robot_poses(used_indices)
         if len(robot_rot_matrices) == 0:
             print("错误：没有有效的机器人位姿数据")
             return
