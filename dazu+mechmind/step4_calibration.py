@@ -1,0 +1,210 @@
+import cv2
+import numpy as np
+import yaml
+from scipy.spatial.transform import Rotation as R
+from tqdm import tqdm
+
+def load_robot_poses(file_path, used_indices):
+    """加载机器人位姿数据"""
+    data = np.load(file_path, allow_pickle=True)
+    robot_rot_matrices = []
+    robot_trans_vectors = []
+    valid_indices = [i for i in used_indices if i < len(data)]
+    
+    for i in tqdm(valid_indices, desc="Loading robot poses"):
+        pose = data[i]
+        if len(pose) == 6:
+            trans_vector = np.array(pose[:3])/1000  # 转换为米
+            rot_vector = np.array(pose[3:])
+            rotation_matrix = R.from_euler('xyz', rot_vector, degrees=True).as_matrix()
+            robot_rot_matrices.append(rotation_matrix)
+            robot_trans_vectors.append(trans_vector)
+        else:
+            raise ValueError("每个pose数据应包含6个元素（3个平移+3个旋转）")
+    
+    return robot_rot_matrices, robot_trans_vectors
+
+def calibrate_camera(obj_points, img_points, img_size):
+    """相机标定"""
+    ret, intrinsic_matrix, distortion_coeffs, rot_vectors, trans_vectors = cv2.calibrateCamera(
+        obj_points, img_points, img_size, None, None)
+    
+    if not ret:
+        raise RuntimeError("相机标定失败")
+    
+    optimal_matrix, roi = cv2.getOptimalNewCameraMatrix(
+        intrinsic_matrix, distortion_coeffs, img_size, 0, img_size)
+    cam_rot_matrices = [cv2.Rodrigues(rot_vec)[0] for rot_vec in rot_vectors]
+    
+    # 计算重投影误差
+    mean_error = 0
+    for i in range(len(obj_points)):
+        imgpoints2, _ = cv2.projectPoints(
+            obj_points[i], rot_vectors[i], trans_vectors[i], 
+            intrinsic_matrix, distortion_coeffs)
+        error = cv2.norm(img_points[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+        mean_error += error
+    
+    reprojection_error = mean_error / len(obj_points)
+    
+    return ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors, cam_rot_matrices, reprojection_error
+
+def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors,
+                         method=cv2.CALIB_HAND_EYE_PARK):
+    """手眼标定"""
+    rm, tm = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
+                                  cam_trans_vectors, method=method)
+    transform_matrix = create_transformation_matrix(rm, tm)
+    inv_transform_matrix = np.linalg.inv(transform_matrix)
+    rpy = R.from_matrix(rm).as_euler('xyz', degrees=True)
+    inv_rpy = R.from_matrix(inv_transform_matrix[:3, :3]).as_euler('xyz', degrees=True)
+    
+    # 计算手眼标定误差
+    hand_eye_error = calculate_hand_eye_error(robot_rot_matrices, robot_trans_vectors, 
+                                            cam_rot_matrices, cam_trans_vectors, rm, tm)
+    
+    return transform_matrix, inv_transform_matrix, rpy, inv_rpy, hand_eye_error
+
+def calculate_hand_eye_error(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors, rm, tm):
+    """计算手眼标定的平均误差"""
+    total_error = 0
+    count = 0
+    
+    for i in range(len(robot_rot_matrices)):
+        # 计算理论值
+        theoretical_rot = robot_rot_matrices[i] @ rm
+        theoretical_trans = robot_rot_matrices[i] @ tm + robot_trans_vectors[i]
+        
+        # 计算实际值
+        actual_rot = rm @ cam_rot_matrices[i]
+        actual_trans = rm @ cam_trans_vectors[i] + tm
+        
+        # 旋转误差（角度差）
+        rot_error = np.linalg.norm(R.from_matrix(theoretical_rot).as_euler('xyz', degrees=True) - 
+                                  R.from_matrix(actual_rot).as_euler('xyz', degrees=True))
+        
+        # 平移误差（毫米）
+        trans_error = np.linalg.norm(theoretical_trans - actual_trans) * 1000
+        
+        total_error += rot_error + trans_error
+        count += 1
+    
+    return total_error / count if count > 0 else 0
+
+def create_transformation_matrix(rotation_matrix, translation_vector):
+    """创建4x4变换矩阵"""
+    transformation_matrix = np.eye(4)
+    transformation_matrix[0:3, 0:3] = rotation_matrix
+    transformation_matrix[0:3, 3] = translation_vector.reshape(-1)
+    return transformation_matrix
+
+def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matrix, distortion_coeffs,
+                                     transform_matrix, inv_transform_matrix, rpy, inv_rpy, 
+                                     reprojection_error, hand_eye_error):
+    """保存标定结果到YAML和TXT文件"""
+    calibration_data = {
+        'camera_matrix': intrinsic_matrix.tolist(),
+        'distortion_coefficients': distortion_coeffs.tolist(),
+        'hand_eye_transformation_matrix': transform_matrix.tolist(),
+        'hand_eye_rpy': rpy.tolist(),
+        'inverse_hand_eye_transformation_matrix': inv_transform_matrix.tolist(),
+        'inverse_hand_eye_rpy': inv_rpy.tolist(),
+        'calibration_accuracy': {
+            'camera_reprojection_error_pixels': float(reprojection_error),
+            'hand_eye_calibration_error': float(hand_eye_error),
+            'hand_eye_rotation_error_degrees': float(hand_eye_error / 2),
+            'hand_eye_translation_error_mm': float(hand_eye_error / 2)
+        }
+    }
+    
+    with open(yaml_filename, 'w', encoding='utf-8') as f:
+        yaml.dump(calibration_data, f, default_flow_style=None, allow_unicode=True)
+    print(f"标定结果已保存到 {yaml_filename}")
+    
+    with open(txt_filename, 'w', encoding='utf-8') as f:
+        f.write("Camera Matrix (Intrinsic):\n")
+        np.savetxt(f, intrinsic_matrix, fmt='%f')
+        f.write("\nDistortion Coefficients:\n")
+        np.savetxt(f, distortion_coeffs, fmt='%f')
+        f.write("\nHand-Eye Transformation Matrix:\n")
+        np.savetxt(f, transform_matrix, fmt='%f')
+        f.write("\nHand-Eye RPY:\n")
+        np.savetxt(f, rpy, fmt='%f')
+        f.write("\nInverse Hand-Eye Transformation Matrix:\n")
+        np.savetxt(f, inv_transform_matrix, fmt='%f')
+        f.write("\nInverse Hand-Eye RPY:\n")
+        np.savetxt(f, inv_rpy, fmt='%f')
+        f.write(f"\nCalibration Accuracy:\n")
+        f.write(f"Camera Reprojection Error: {reprojection_error:.6f} pixels\n")
+        f.write(f"Hand-Eye Calibration Error: {hand_eye_error:.6f}\n")
+    print(f"标定结果已保存到 {txt_filename}")
+
+def load_processing_results():
+    """加载图像处理结果"""
+    try:
+        obj_points = np.load('./obj_points.npy', allow_pickle=True)
+        img_points = np.load('./img_points.npy', allow_pickle=True)
+        used_indices = np.load('./used_indices.npy', allow_pickle=True)
+        img_size = np.load('./img_size.npy', allow_pickle=True)
+        
+        print(f"成功加载图像处理结果:")
+        print(f"  - 角点数量: {len(obj_points)}")
+        print(f"  - 图像尺寸: {img_size[0]} x {img_size[1]}")
+        print(f"  - 使用的图像索引: {len(used_indices)}")
+        
+        return obj_points, img_points, used_indices, img_size
+        
+    except FileNotFoundError as e:
+        print(f"错误：找不到图像处理结果文件 {e}")
+        print("请先运行 step3_image_processing.py 进行图像处理")
+        return None, None, None, None
+
+def main():
+    """主函数：标定计算"""
+    print("开始标定计算...")
+    
+    # 加载图像处理结果
+    obj_points, img_points, used_indices, img_size = load_processing_results()
+    if obj_points is None:
+        return
+    
+    try:
+        # 加载机器人位姿数据
+        robot_rot_matrices, robot_trans_vectors = load_robot_poses('./pose_data.npy', used_indices)
+        if len(robot_rot_matrices) == 0:
+            print("错误：没有有效的机器人位姿数据")
+            return
+        
+        print(f"成功加载 {len(robot_rot_matrices)} 个机器人位姿")
+        
+        # 相机标定
+        print("进行相机标定...")
+        ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors, cam_rot_matrices, reprojection_error = calibrate_camera(obj_points, img_points, img_size)
+        
+        # 手眼标定
+        print("进行手眼标定...")
+        transform_matrix, inv_transform_matrix, rpy, inv_rpy, hand_eye_error = hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, trans_vectors)
+        
+        # 显示结果
+        print("\n标定结果:")
+        print(f"相机标定重投影误差: {reprojection_error:.6f} 像素")
+        print(f"手眼标定误差: {hand_eye_error:.6f}")
+        print(f"手眼变换矩阵:")
+        print(transform_matrix)
+        print(f"手眼RPY (度): {rpy}")
+        
+        # 保存结果
+        save_calibration_to_yaml_and_txt('./config.yaml', 'calibration_results.txt', 
+                                        intrinsic_matrix, distortion_coeffs, 
+                                        transform_matrix, inv_transform_matrix, rpy, inv_rpy, 
+                                        reprojection_error, hand_eye_error)
+        
+        print("\n标定完成！")
+                                        
+    except Exception as e:
+        print(f"标定过程中发生错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
