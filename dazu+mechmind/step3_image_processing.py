@@ -4,6 +4,7 @@ import glob
 import os
 from tqdm import tqdm
 import re
+import pandas as pd
 
 def find_corners(images, pattern_size):
     """检测图像中的角点"""
@@ -14,7 +15,8 @@ def find_corners(images, pattern_size):
     unused_images = []
 
     # 确保输出目录存在
-    os.makedirs('./processed_images', exist_ok=True)
+    processed_dir = './processed_images'
+    os.makedirs(processed_dir, exist_ok=True)
 
     for i, fname in tqdm(enumerate(images), desc="Finding corners", total=len(images)):
         img = cv2.imread(fname)
@@ -31,7 +33,7 @@ def find_corners(images, pattern_size):
             used_indices.append(i)
             # 绘制角点
             cv2.drawChessboardCorners(img, pattern_size, corners.reshape(-1, 1, 2), ret)
-            output_fname = f"./processed_images/{i:03d}.png"
+            output_fname = os.path.join(processed_dir, f"{i:03d}.png")
             cv2.imwrite(output_fname, img)
         else:
             unused_images.append(fname)
@@ -56,13 +58,89 @@ def sort_images(images):
         return int(match.group(0)) if match else 0
     return sorted(images, key=extract_number)
 
+def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size):
+    """将处理结果保存到Excel文件"""
+    # 创建Excel结果文件夹
+    excel_dir = './excel_results'
+    os.makedirs(excel_dir, exist_ok=True)
+    
+    excel_filename = os.path.join(excel_dir, 'image_processing_results.xlsx')
+    
+    with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
+        # 1. 处理摘要表
+        summary_data = {
+            '项目': ['总图像数量', '成功处理图像数量', '未处理图像数量', '图像宽度', '图像高度', '标定板宽度', '标定板高度', '角点间距(mm)'],
+            '数值': [len(used_indices) + len(unused_images), len(obj_points), len(unused_images), 
+                    img_size[0], img_size[1], 4, 11, 20]
+        }
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='处理摘要', index=False)
+        
+        # 2. 成功处理的图像列表
+        if used_indices:
+            success_data = {
+                '图像索引': used_indices,
+                '图像文件名': [f'{idx:03d}.png' for idx in used_indices],
+                '角点数量': [len(obj_points[i]) for i in range(len(obj_points))]
+            }
+            success_df = pd.DataFrame(success_data)
+            success_df.to_excel(writer, sheet_name='成功处理图像', index=False)
+        
+        # 3. 未处理的图像列表
+        if unused_images:
+            unused_data = {
+                '图像文件名': unused_images,
+                '状态': ['角点检测失败'] * len(unused_images)
+            }
+            unused_df = pd.DataFrame(unused_data)
+            unused_df.to_excel(writer, sheet_name='未处理图像', index=False)
+        
+        # 4. 世界坐标点（标定板坐标）
+        world_points = create_world_points((4, 11))
+        world_data = {
+            '点索引': range(len(world_points)),
+            'X坐标(mm)': world_points[:, 0],
+            'Y坐标(mm)': world_points[:, 1],
+            'Z坐标(mm)': world_points[:, 2]
+        }
+        world_df = pd.DataFrame(world_data)
+        world_df.to_excel(writer, sheet_name='世界坐标点', index=False)
+        
+        # 5. 每张图像的角点坐标详情
+        if obj_points and img_points:
+            all_corners_data = []
+            for img_idx, (obj_pts, img_pts) in enumerate(zip(obj_points, img_points)):
+                for corner_idx in range(len(obj_pts)):
+                    all_corners_data.append({
+                        '图像索引': used_indices[img_idx],
+                        '角点索引': corner_idx,
+                        '世界坐标X(mm)': obj_pts[corner_idx, 0],
+                        '世界坐标Y(mm)': obj_pts[corner_idx, 1],
+                        '世界坐标Z(mm)': obj_pts[corner_idx, 2],
+                        '图像坐标X(像素)': img_pts[corner_idx, 0],
+                        '图像坐标Y(像素)': img_pts[corner_idx, 1]
+                    })
+            
+            corners_df = pd.DataFrame(all_corners_data)
+            corners_df.to_excel(writer, sheet_name='角点坐标详情', index=False)
+    
+    print(f"Excel文件已保存: {excel_filename}")
+    return excel_filename
+
 def save_processing_results(obj_points, img_points, used_indices, unused_images, img_size):
     """保存图像处理结果"""
+    # 创建数据文件夹
+    data_dir = './processing_data'
+    os.makedirs(data_dir, exist_ok=True)
+    
     # 保存角点数据
-    np.save('./obj_points.npy', obj_points)
-    np.save('./img_points.npy', img_points)
-    np.save('./used_indices.npy', used_indices)
-    np.save('./img_size.npy', img_size)
+    np.save(os.path.join(data_dir, 'obj_points.npy'), obj_points)
+    np.save(os.path.join(data_dir, 'img_points.npy'), img_points)
+    np.save(os.path.join(data_dir, 'used_indices.npy'), used_indices)
+    np.save(os.path.join(data_dir, 'img_size.npy'), img_size)
+    
+    # 保存到Excel
+    excel_filename = save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
     
     # 保存处理统计信息
     with open('./processing_summary.txt', 'w', encoding='utf-8') as f:
@@ -74,6 +152,7 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
         f.write(f"图像尺寸: {img_size[0]} x {img_size[1]}\n")
         f.write(f"标定板尺寸: 4 x 11\n")
         f.write(f"角点间距: 20mm\n")
+        f.write(f"Excel文件: {excel_filename}\n")
         f.write("\n")
         
         if unused_images:
@@ -86,11 +165,13 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
             f.write(f"  - {idx:03d}.png\n")
     
     print(f"图像处理结果已保存:")
-    print(f"  - obj_points.npy: 世界坐标点")
-    print(f"  - img_points.npy: 图像坐标点")
-    print(f"  - used_indices.npy: 使用的图像索引")
-    print(f"  - img_size.npy: 图像尺寸")
+    print(f"  - {data_dir}/obj_points.npy: 世界坐标点")
+    print(f"  - {data_dir}/img_points.npy: 图像坐标点")
+    print(f"  - {data_dir}/used_indices.npy: 使用的图像索引")
+    print(f"  - {data_dir}/img_size.npy: 图像尺寸")
     print(f"  - processing_summary.txt: 处理摘要")
+    print(f"  - {excel_filename}: Excel详细结果")
+    print(f"  - ./processed_images/: 处理后的图像（带角点标记）")
 
 def main():
     """主函数：图像处理和角点检测"""

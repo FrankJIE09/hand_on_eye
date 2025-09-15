@@ -49,15 +49,83 @@ def calibrate_camera(obj_points, img_points, img_size):
     
     return ret, intrinsic_matrix, distortion_coeffs, optimal_matrix, trans_vectors, cam_rot_matrices, reprojection_error
 
+def validate_and_fix_rotation_matrix(rotation_matrix):
+    """验证并修正旋转矩阵"""
+    # 计算行列式
+    det = np.linalg.det(rotation_matrix)
+    print(f"旋转矩阵行列式: {det:.6f}")
+    
+    # 如果行列式为负值（左手坐标系），需要修正
+    if det < 0:
+        print("警告：检测到左手坐标系，正在修正...")
+        # 对矩阵进行SVD分解
+        U, s, Vt = np.linalg.svd(rotation_matrix)
+        # 强制行列式为正值（右手坐标系）
+        if np.linalg.det(U @ Vt) < 0:
+            # 翻转最后一列
+            U[:, -1] *= -1
+        rotation_matrix = U @ Vt
+        print(f"修正后旋转矩阵行列式: {np.linalg.det(rotation_matrix):.6f}")
+    
+    # 验证正交性
+    should_be_identity = rotation_matrix @ rotation_matrix.T
+    orthogonality_error = np.linalg.norm(should_be_identity - np.eye(3))
+    print(f"正交性误差: {orthogonality_error:.6f}")
+    
+    if orthogonality_error > 1e-6:
+        print("警告：旋转矩阵正交性较差，使用SVD重新正交化...")
+        U, s, Vt = np.linalg.svd(rotation_matrix)
+        rotation_matrix = U @ Vt
+        # 确保行列式为正
+        if np.linalg.det(rotation_matrix) < 0:
+            U[:, -1] *= -1
+            rotation_matrix = U @ Vt
+        print(f"重新正交化后行列式: {np.linalg.det(rotation_matrix):.6f}")
+    
+    return rotation_matrix
+
+def matrix_to_rpy_manual(rotation_matrix):
+    """手动计算旋转矩阵的RPY角度（度）"""
+    r11, r12, r13 = rotation_matrix[0, :]
+    r21, r22, r23 = rotation_matrix[1, :]
+    r31, r32, r33 = rotation_matrix[2, :]
+    
+    # 计算RPY角度（单位：弧度）
+    roll = np.arctan2(r32, r33)
+    pitch = np.arctan2(-r31, np.sqrt(r32**2 + r33**2))
+    yaw = np.arctan2(r21, r11)
+    
+    # 转换为度
+    return np.array([np.degrees(roll), np.degrees(pitch), np.degrees(yaw)])
+
 def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors,
                          method=cv2.CALIB_HAND_EYE_PARK):
     """手眼标定"""
     rm, tm = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
                                   cam_trans_vectors, method=method)
+    
+    # 验证并修正旋转矩阵
+    print("验证手眼标定旋转矩阵...")
+    rm = validate_and_fix_rotation_matrix(rm)
+    
     transform_matrix = create_transformation_matrix(rm, tm)
     inv_transform_matrix = np.linalg.inv(transform_matrix)
-    rpy = R.from_matrix(rm).as_euler('xyz', degrees=True)
-    inv_rpy = R.from_matrix(inv_transform_matrix[:3, :3]).as_euler('xyz', degrees=True)
+    
+    # 验证并修正逆变换矩阵的旋转部分
+    print("验证逆变换矩阵旋转部分...")
+    inv_rm = validate_and_fix_rotation_matrix(inv_transform_matrix[:3, :3])
+    inv_transform_matrix[:3, :3] = inv_rm
+    
+    # 现在安全地计算RPY
+    try:
+        rpy = R.from_matrix(rm).as_euler('xyz', degrees=True)
+        inv_rpy = R.from_matrix(inv_rm).as_euler('xyz', degrees=True)
+    except ValueError as e:
+        print(f"旋转矩阵转换为欧拉角时出错: {e}")
+        # 作为备选方案，使用atan2计算RPY
+        rpy = matrix_to_rpy_manual(rm)
+        inv_rpy = matrix_to_rpy_manual(inv_rm)
+        print("使用手动计算的RPY角度")
     
     # 计算手眼标定误差
     hand_eye_error = calculate_hand_eye_error(robot_rot_matrices, robot_trans_vectors, 
@@ -80,8 +148,14 @@ def calculate_hand_eye_error(robot_rot_matrices, robot_trans_vectors, cam_rot_ma
         actual_trans = rm @ cam_trans_vectors[i] + tm
         
         # 旋转误差（角度差）
-        rot_error = np.linalg.norm(R.from_matrix(theoretical_rot).as_euler('xyz', degrees=True) - 
-                                  R.from_matrix(actual_rot).as_euler('xyz', degrees=True))
+        try:
+            theoretical_rpy = R.from_matrix(theoretical_rot).as_euler('xyz', degrees=True)
+            actual_rpy = R.from_matrix(actual_rot).as_euler('xyz', degrees=True)
+        except ValueError:
+            # 如果scipy方法失败，使用手动计算
+            theoretical_rpy = matrix_to_rpy_manual(theoretical_rot)
+            actual_rpy = matrix_to_rpy_manual(actual_rot)
+        rot_error = np.linalg.norm(theoretical_rpy - actual_rpy)
         
         # 平移误差（毫米）
         trans_error = np.linalg.norm(theoretical_trans - actual_trans) * 1000
