@@ -15,7 +15,7 @@ def load_robot_poses(used_indices):
         if os.path.exists(pose_file):
             pose_data = np.load(pose_file)
             # 取前6个元素（位置和姿态）
-            pose = pose_data[:6]
+            pose = pose_data[6:12]
             if len(pose) == 6:
                 trans_vector = np.array(pose[:3])/1000  # 转换为米
                 rot_vector = np.array(pose[3:])
@@ -107,9 +107,43 @@ def matrix_to_rpy_manual(rotation_matrix):
     return np.array([np.degrees(roll), np.degrees(pitch), np.degrees(yaw)])
 
 def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices, cam_trans_vectors,
-                         method=cv2.CALIB_HAND_EYE_PARK):
+                         method=cv2.CALIB_HAND_EYE_TSAI):
     """手眼标定"""
-    rm, tm = cv2.calibrateHandEye(robot_rot_matrices, robot_trans_vectors, cam_rot_matrices,
+    
+    # 将旋转矩阵和平移向量组合成SE(3)矩阵，然后求逆
+    print("将位姿数据组合成SE(3)矩阵并求逆...")
+    
+    # 机器人位姿SE(3)矩阵列表
+    robot_se3_matrices = []
+    for i in range(len(robot_rot_matrices)):
+        se3_matrix = rot_trans_to_se3(robot_rot_matrices[i], robot_trans_vectors[i])
+        inv_se3_matrix = np.linalg.inv(se3_matrix)
+        robot_se3_matrices.append(inv_se3_matrix)
+    
+    # 相机位姿SE(3)矩阵列表
+    cam_se3_matrices = []
+    for i in range(len(cam_rot_matrices)):
+        se3_matrix = rot_trans_to_se3(cam_rot_matrices[i], cam_trans_vectors[i])
+        inv_se3_matrix = np.linalg.inv(se3_matrix)
+        cam_se3_matrices.append(inv_se3_matrix)
+    
+    # 从SE(3)矩阵中提取旋转矩阵和平移向量
+    inv_robot_rot_matrices = []
+    inv_robot_trans_vectors = []
+    inv_cam_rot_matrices = []
+    inv_cam_trans_vectors = []
+    
+    for se3_matrix in robot_se3_matrices:
+        rot, trans = se3_to_rot_trans(se3_matrix)
+        inv_robot_rot_matrices.append(rot)
+        inv_robot_trans_vectors.append(trans)
+    
+    for se3_matrix in cam_se3_matrices:
+        rot, trans = se3_to_rot_trans(se3_matrix)
+        inv_cam_rot_matrices.append(rot)
+        inv_cam_trans_vectors.append(trans)
+
+    rm, tm = cv2.calibrateHandEye(inv_robot_rot_matrices, inv_robot_trans_vectors, cam_rot_matrices,
                                   cam_trans_vectors, method=method)
     
     # 验证并修正旋转矩阵
@@ -135,7 +169,7 @@ def hand_eye_calibration(robot_rot_matrices, robot_trans_vectors, cam_rot_matric
         inv_rpy = matrix_to_rpy_manual(inv_rm)
         print("使用手动计算的RPY角度")
     
-    # 计算手眼标定误差
+    # 计算手眼标定误差（使用原始位姿数据）
     hand_eye_error = calculate_hand_eye_error(robot_rot_matrices, robot_trans_vectors, 
                                             cam_rot_matrices, cam_trans_vectors, rm, tm)
     
@@ -179,6 +213,19 @@ def create_transformation_matrix(rotation_matrix, translation_vector):
     transformation_matrix[0:3, 0:3] = rotation_matrix
     transformation_matrix[0:3, 3] = translation_vector.reshape(-1)
     return transformation_matrix
+
+def se3_to_rot_trans(se3_matrix):
+    """从SE(3)矩阵中提取旋转矩阵和平移向量"""
+    rotation_matrix = se3_matrix[:3, :3]
+    translation_vector = se3_matrix[:3, 3]
+    return rotation_matrix, translation_vector
+
+def rot_trans_to_se3(rotation_matrix, translation_vector):
+    """将旋转矩阵和平移向量组合成SE(3)矩阵"""
+    se3_matrix = np.eye(4)
+    se3_matrix[:3, :3] = rotation_matrix
+    se3_matrix[:3, 3] = translation_vector.reshape(-1)
+    return se3_matrix
 
 def save_calibration_to_yaml_and_txt(yaml_filename, txt_filename, intrinsic_matrix, distortion_coeffs,
                                      transform_matrix, inv_transform_matrix, rpy, inv_rpy, 
