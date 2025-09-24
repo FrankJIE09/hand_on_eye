@@ -258,7 +258,7 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
 
 def main():
     """主函数：图像处理和角点检测"""
-    pattern_size = (4, 5)  # 5x4标定板
+    pattern_size = (5, 4)  # 5x4标定板
     images = glob.glob('./captured_images/*.png')
     
     if not images:
