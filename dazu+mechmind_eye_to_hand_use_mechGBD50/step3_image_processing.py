@@ -172,7 +172,7 @@ def create_world_points(pattern_size):
         for j in range(width):
             world_points[num, :2] = [j + 0.5 * (i % 2), i * 0.5]
             num += 1
-    return world_points * 0.02
+    return world_points * 0.05  # 50mm间距
 
 def sort_images(images):
     """按文件名中的数字排序图像"""
@@ -194,7 +194,7 @@ def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
         summary_data = {
             '项目': ['总图像数量', '成功处理图像数量', '未处理图像数量', '图像宽度', '图像高度', '标定板宽度', '标定板高度', '角点间距(mm)'],
             '数值': [len(used_indices) + len(unused_images), len(obj_points), len(unused_images), 
-                    img_size[0], img_size[1], 4, 11, 20]
+                    img_size[0], img_size[1], 4, 5, 50]
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='处理摘要', index=False)
@@ -219,7 +219,7 @@ def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
             unused_df.to_excel(writer, sheet_name='未处理图像', index=False)
         
         # 4. 世界坐标点（标定板坐标）
-        world_points = create_world_points((4, 11))
+        world_points = create_world_points((4, 5))
         world_data = {
             '点索引': range(len(world_points)),
             'X坐标(mm)': world_points[:, 0],
@@ -277,8 +277,8 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
         f.write(f"成功处理图像数量: {len(obj_points)}\n")
         f.write(f"未处理图像数量: {len(unused_images)}\n")
         f.write(f"图像尺寸: {img_size[0]} x {img_size[1]}\n")
-        f.write(f"标定板尺寸: 4 x 11\n")
-        f.write(f"角点间距: 20mm\n")
+        f.write(f"标定板尺寸: 4 x 5\n")
+        f.write(f"角点间距: 50mm\n")
         f.write(f"Excel文件: {excel_filename}\n")
         f.write("\n")
         
@@ -302,7 +302,7 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
 
 def main():
     """主函数：图像处理和角点检测"""
-    pattern_size = (4, 11)
+    pattern_size = (4, 5)  # 4x5标定板，与test.py保持一致
     images = glob.glob('./captured_images/*.png')
     
     if not images:
