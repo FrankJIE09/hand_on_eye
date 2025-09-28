@@ -32,8 +32,36 @@ def preprocess_image(img):
         'bilateral': bilateral
     }
 
+def create_blob_detector():
+    """创建Blob检测器，基于test.py的成功配置"""
+    params = cv2.SimpleBlobDetector_Params()
+    
+    # 设置阈值
+    params.minThreshold = 10
+    params.maxThreshold = 220
+    params.blobColor = 255
+    
+    # 设置面积过滤
+    params.filterByArea = True
+    params.minArea = 100
+    params.maxArea = 1000000
+    
+    # 设置圆度过滤
+    params.filterByCircularity = True
+    params.minCircularity = 0.5
+    
+    # 设置凸度过滤
+    params.filterByConvexity = True
+    params.minConvexity = 0.5
+    
+    # 设置惯性比过滤
+    params.filterByInertia = True
+    params.minInertiaRatio = 0.5
+    
+    return cv2.SimpleBlobDetector_create(params)
+
 def find_corners(images, pattern_size):
-    """检测图像中的角点，使用多种方法处理光照不均"""
+    """检测图像中的角点，使用Blob检测器配合多种预处理方法"""
     world_points = create_world_points(pattern_size)
     obj_points = []
     img_points = []
@@ -43,6 +71,9 @@ def find_corners(images, pattern_size):
     # 确保输出目录存在
     processed_dir = './processed_images'
     os.makedirs(processed_dir, exist_ok=True)
+    
+    # 创建Blob检测器
+    detector = create_blob_detector()
 
     for i, fname in tqdm(enumerate(images), desc="Finding corners", total=len(images)):
         img = cv2.imread(fname)
@@ -58,46 +89,59 @@ def find_corners(images, pattern_size):
         corners = None
         method_used = None
         
-        # 方法1：原始图像
+        # 方法1：原始图像 + Blob检测器
         ret, corners = cv2.findCirclesGrid(processed_images['original'], pattern_size, 
-                                          flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+                                          flags=cv2.CALIB_CB_ASYMMETRIC_GRID, 
+                                          blobDetector=detector)
         if ret:
-            method_used = 'original'
+            method_used = 'original_blob'
         
-        # 方法2：CLAHE处理
+        # 方法2：CLAHE处理 + Blob检测器
         if not ret:
             ret, corners = cv2.findCirclesGrid(processed_images['clahe'], pattern_size, 
-                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID,
+                                              blobDetector=detector)
             if ret:
-                method_used = 'clahe'
+                method_used = 'clahe_blob'
         
-        # 方法3：直方图均衡化
+        # 方法3：直方图均衡化 + Blob检测器
         if not ret:
             ret, corners = cv2.findCirclesGrid(processed_images['equalized'], pattern_size, 
-                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID,
+                                              blobDetector=detector)
             if ret:
-                method_used = 'equalized'
+                method_used = 'equalized_blob'
         
-        # 方法4：双边滤波
+        # 方法4：双边滤波 + Blob检测器
         if not ret:
             ret, corners = cv2.findCirclesGrid(processed_images['bilateral'], pattern_size, 
-                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID,
+                                              blobDetector=detector)
             if ret:
-                method_used = 'bilateral'
+                method_used = 'bilateral_blob'
         
-        # 方法5：高斯滤波
+        # 方法5：高斯滤波 + Blob检测器
         if not ret:
             ret, corners = cv2.findCirclesGrid(processed_images['blurred'], pattern_size, 
-                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID,
+                                              blobDetector=detector)
             if ret:
-                method_used = 'blurred'
+                method_used = 'blurred_blob'
         
-        # 方法6：尝试不同的检测标志
+        # 方法6：尝试不同的检测标志 + Blob检测器
         if not ret:
             ret, corners = cv2.findCirclesGrid(processed_images['clahe'], pattern_size, 
-                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING)
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING,
+                                              blobDetector=detector)
             if ret:
-                method_used = 'clahe_clustering'
+                method_used = 'clahe_clustering_blob'
+        
+        # 方法7：不使用Blob检测器，直接检测
+        if not ret:
+            ret, corners = cv2.findCirclesGrid(processed_images['original'], pattern_size, 
+                                              flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+            if ret:
+                method_used = 'original_direct'
         
         if ret:
             obj_points.append(world_points)
@@ -150,7 +194,7 @@ def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
         summary_data = {
             '项目': ['总图像数量', '成功处理图像数量', '未处理图像数量', '图像宽度', '图像高度', '标定板宽度', '标定板高度', '角点间距(mm)'],
             '数值': [len(used_indices) + len(unused_images), len(obj_points), len(unused_images), 
-                    img_size[0], img_size[1], 5, 4, 50]
+                    img_size[0], img_size[1], 4, 5, 50]
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='处理摘要', index=False)
@@ -175,7 +219,7 @@ def save_to_excel(obj_points, img_points, used_indices, unused_images, img_size)
             unused_df.to_excel(writer, sheet_name='未处理图像', index=False)
         
         # 4. 世界坐标点（标定板坐标）
-        world_points = create_world_points((5, 4))
+        world_points = create_world_points((4, 5))
         world_data = {
             '点索引': range(len(world_points)),
             'X坐标(mm)': world_points[:, 0],
@@ -233,7 +277,7 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
         f.write(f"成功处理图像数量: {len(obj_points)}\n")
         f.write(f"未处理图像数量: {len(unused_images)}\n")
         f.write(f"图像尺寸: {img_size[0]} x {img_size[1]}\n")
-        f.write(f"标定板尺寸: 5 x 4\n")
+        f.write(f"标定板尺寸: 4 x 5\n")
         f.write(f"角点间距: 50mm\n")
         f.write(f"Excel文件: {excel_filename}\n")
         f.write("\n")
@@ -258,7 +302,7 @@ def save_processing_results(obj_points, img_points, used_indices, unused_images,
 
 def main():
     """主函数：图像处理和角点检测"""
-    pattern_size = (5, 4)  # 5x4标定板
+    pattern_size = (4, 5)  # 4x5标定板，与test.py保持一致
     images = glob.glob('./captured_images/*.png')
     
     if not images:
