@@ -73,7 +73,7 @@ pose_data = []
 
 for i, position in enumerate(tqdm(positions, desc="Capturing images and poses")):
     move_robot(cps, boxID, rbtID, position)
-    time.sleep(3)
+    time.sleep(1)
     
     # 捕获图像
     image = capture_image(camera)
@@ -87,5 +87,6 @@ for i, position in enumerate(tqdm(positions, desc="Capturing images and poses"))
 
 # 断开相机连接
 camera.disconnect()
+
 cps.HRIF_DisConnect(boxID)
 np.save('./pose_data.npy', np.array(pose_data))
