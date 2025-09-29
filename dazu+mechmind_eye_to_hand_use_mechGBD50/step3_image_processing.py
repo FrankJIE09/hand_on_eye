@@ -172,7 +172,7 @@ def create_world_points(pattern_size):
         for j in range(width):
             world_points[num, :2] = [j + 0.5 * (i % 2), i * 0.5]
             num += 1
-    return world_points * 0.05  # 50mm间距
+    return world_points * 0.1  # 50mm间距
 
 def sort_images(images):
     """按文件名中的数字排序图像"""
